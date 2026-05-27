@@ -27,8 +27,7 @@ type Commander interface {
 	CancelTask(taskInsIds []string, ops ...CommandOptSetter) error
 	ContinueDagIns(dagInsId string, ops ...CommandOptSetter) error
 	ContinueTask(taskInsIds []string, ops ...CommandOptSetter) error
-	SkipDagIns(dagInsId string, ops ...CommandOptSetter) error
-	SkipTask(taskInsIds []string, ops ...CommandOptSetter) error
+	JumpToTask(taskInsIds []string, ops ...CommandOptSetter) error
 }
 
 // CommandOption
