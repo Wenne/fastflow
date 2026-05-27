@@ -522,8 +522,9 @@ func (p *DefParser) Close() {
 
 // parseJumpToCmd handles the jump_to command:
 // 1. Skip all failed tasks so they don't block execution
-// 2. Reset the target task and all its downstream tasks (success/skipped → init)
-// 3. Re-initialize the DAG instance to start execution from the target
+// 2. Skip all init tasks that are NOT the target or downstream of target
+// 3. Reset the target task and all its downstream tasks (success/skipped → init)
+// 4. Re-initialize the DAG instance to start execution from the target
 func (p *DefParser) parseJumpToCmd(dagIns *entity.DagInstance) error {
 	targetTaskInsIDs := dagIns.Cmd.TargetTaskInsIDs
 	if len(targetTaskInsIDs) == 0 {
@@ -565,13 +566,16 @@ func (p *DefParser) parseJumpToCmd(dagIns *entity.DagInstance) error {
 				}
 				hasAnyTaskChanged = true
 			}
-		} else if t.Status == entity.TaskInstanceStatusFailed {
-			t.Status = entity.TaskInstanceStatusSkipped
-			t.Reason = ""
-			if err := GetStore().UpdateTaskIns(t); err != nil {
-				return err
+		} else {
+			if t.Status == entity.TaskInstanceStatusFailed ||
+				t.Status == entity.TaskInstanceStatusInit {
+				t.Status = entity.TaskInstanceStatusSkipped
+				t.Reason = ""
+				if err := GetStore().UpdateTaskIns(t); err != nil {
+					return err
+				}
+				hasAnyTaskChanged = true
 			}
-			hasAnyTaskChanged = true
 		}
 	}
 
