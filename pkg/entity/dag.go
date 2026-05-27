@@ -200,6 +200,7 @@ type DagInstanceLifecycleHook struct {
 	BeforeBlock    DagInstanceHookFunc
 	BeforeRetry    DagInstanceHookFunc
 	BeforeContinue DagInstanceHookFunc
+	BeforeSkip     DagInstanceHookFunc
 }
 
 // VarsGetter
@@ -265,6 +266,11 @@ func (dagIns *DagInstance) Continue(taskInsIds []string) error {
 	return dagIns.genCmd(taskInsIds, CommandNameContinue)
 }
 
+// Skip tasks, mark them as skipped so DAG can continue to execute subsequent tasks
+func (dagIns *DagInstance) Skip(taskInsIds []string) error {
+	return dagIns.genCmd(taskInsIds, CommandNameSkip)
+}
+
 func (dagIns *DagInstance) genCmd(taskInsIds []string, cmdName CommandName) error {
 	if dagIns.Cmd != nil {
 		return fmt.Errorf("dag instance have a incomplete command")
@@ -275,6 +281,8 @@ func (dagIns *DagInstance) genCmd(taskInsIds []string, cmdName CommandName) erro
 		dagIns.executeHook(HookDagInstance.BeforeRetry)
 	case CommandNameContinue:
 		dagIns.executeHook(HookDagInstance.BeforeContinue)
+	case CommandNameSkip:
+		dagIns.executeHook(HookDagInstance.BeforeSkip)
 	}
 
 	dagIns.Cmd = &Command{
@@ -320,6 +328,7 @@ const (
 	CommandNameRetry    = "retry"
 	CommandNameCancel   = "cancel"
 	CommandNameContinue = "continue"
+	CommandNameSkip     = "skip"
 )
 
 // DagInstanceStatus

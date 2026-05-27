@@ -139,6 +139,30 @@ func (c *DefCommander) ContinueTask(taskInsIds []string, ops ...CommandOptSetter
 	}, opt)
 }
 
+// SkipDagIns skip all failed tasks in the dag instance so DAG can continue
+func (c *DefCommander) SkipDagIns(dagInsId string, ops ...CommandOptSetter) error {
+	return c.autoLoopDagTasks(
+		dagInsId,
+		[]entity.TaskInstanceStatus{entity.TaskInstanceStatusFailed},
+		c.SkipTask,
+		ops...)
+}
+
+// SkipTask skip specific tasks (failed or init) so DAG can continue to execute subsequent tasks
+func (c *DefCommander) SkipTask(taskInsIds []string, ops ...CommandOptSetter) error {
+	opt := initOption(ops)
+	return executeCommand(taskInsIds, func(dagIns *entity.DagInstance, isWorkerAlive bool) error {
+		if !isWorkerAlive {
+			aliveNodes, err := GetKeeper().AliveNodes()
+			if err != nil {
+				return err
+			}
+			dagIns.Worker = aliveNodes[rand.Intn(len(aliveNodes))]
+		}
+		return dagIns.Skip(taskInsIds)
+	}, opt)
+}
+
 func (c *DefCommander) autoLoopDagTasks(
 	dagInsId string,
 	status []entity.TaskInstanceStatus,

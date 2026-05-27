@@ -333,6 +333,183 @@ func TestDefCommander_CancelTask(t *testing.T) {
 
 }
 
+func TestDefCommander_SkipDagIns(t *testing.T) {
+	tests := []struct {
+		caseDesc      string
+		giveDagInsID  string
+		giveListRet   []*entity.TaskInstance
+		giveListErr   error
+		wantErr       error
+		wantListInput []*ListTaskInstanceInput
+		wantTaskInsId string
+	}{
+		{
+			caseDesc:     "skip-normal",
+			giveDagInsID: "dagInsId",
+			wantListInput: []*ListTaskInstanceInput{
+				{
+					DagInsID: "dagInsId",
+					Status:   []entity.TaskInstanceStatus{entity.TaskInstanceStatusFailed},
+				},
+				{
+					IDs: []string{"testTaskId", "testTaskId2"},
+				},
+			},
+			giveListRet: []*entity.TaskInstance{
+				{
+					BaseInfo: entity.BaseInfo{
+						ID: "testTaskId",
+					},
+					Status: entity.TaskInstanceStatusFailed,
+				},
+				{
+					BaseInfo: entity.BaseInfo{
+						ID: "testTaskId2",
+					},
+					Status: entity.TaskInstanceStatusFailed,
+				},
+			},
+			wantTaskInsId: "testTaskId",
+		},
+		{
+			caseDesc:     "list failed",
+			giveDagInsID: "dagInsId",
+			wantListInput: []*ListTaskInstanceInput{
+				{
+					DagInsID: "dagInsId",
+					Status:   []entity.TaskInstanceStatus{entity.TaskInstanceStatusFailed},
+				},
+			},
+			giveListErr: fmt.Errorf("list failed"),
+			wantErr:     fmt.Errorf("list failed"),
+		},
+		{
+			caseDesc:     "no failed task ins",
+			giveDagInsID: "dagInsId",
+			wantListInput: []*ListTaskInstanceInput{
+				{
+					DagInsID: "dagInsId",
+					Status:   []entity.TaskInstanceStatus{entity.TaskInstanceStatusFailed},
+				},
+			},
+			giveListRet: []*entity.TaskInstance{},
+			wantErr:     fmt.Errorf("no [failed] task instance"),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.caseDesc, func(t *testing.T) {
+			isCalled := false
+
+			listCnt := 0
+			mStore := &MockStore{}
+			mStore.On("ListTaskInstance", mock.Anything).Run(func(args mock.Arguments) {
+				isCalled = true
+				assert.Equal(t, tc.wantListInput[listCnt], args.Get(0))
+				listCnt++
+			}).Return(tc.giveListRet, tc.giveListErr)
+			mStore.On("GetDagInstance", mock.Anything).Return(&entity.DagInstance{
+				Status: entity.DagInstanceStatusFailed,
+			}, nil)
+			mStore.On("PatchDagIns", mock.Anything).Run(func(args mock.Arguments) {
+			}).Return(nil)
+			SetStore(mStore)
+
+			mKeep := &MockKeeper{}
+			mKeep.On("IsAlive", mock.Anything).Return(true, nil)
+			mKeep.On("AliveNodes").Run(func(args mock.Arguments) {
+			}).Return([]string{"alive-node-1"}, nil)
+			SetKeeper(mKeep)
+
+			c := &DefCommander{}
+			err := c.SkipDagIns(tc.giveDagInsID)
+			assert.Equal(t, tc.wantErr, err)
+			assert.True(t, isCalled)
+		})
+	}
+}
+
+func TestDefCommander_SkipTask(t *testing.T) {
+	tests := []struct {
+		caseDesc             string
+		giveTaskInsID        []string
+		giveIsAlive          bool
+		giveAliveNodes       []string
+		giveAliveNodesErr    error
+		wantErr              error
+		wantUpdateDagIns     *entity.DagInstance
+		wantAliveNodesCalled bool
+	}{
+		{
+			caseDesc:      "normal",
+			giveTaskInsID: []string{"test task"},
+			giveIsAlive:   true,
+			wantUpdateDagIns: &entity.DagInstance{
+				Cmd: &entity.Command{
+					Name:             entity.CommandNameSkip,
+					TargetTaskInsIDs: []string{"test task"},
+				},
+			},
+		},
+		{
+			caseDesc:       "unhealthy worker",
+			giveTaskInsID:  []string{"test task"},
+			giveIsAlive:    false,
+			giveAliveNodes: []string{"2"},
+			wantUpdateDagIns: &entity.DagInstance{
+				Worker: "2",
+				Cmd: &entity.Command{
+					Name:             entity.CommandNameSkip,
+					TargetTaskInsIDs: []string{"test task"},
+				},
+			},
+			wantAliveNodesCalled: true,
+		},
+		{
+			caseDesc:             "get alive nodes failed",
+			giveTaskInsID:        []string{"test task"},
+			giveIsAlive:          false,
+			giveAliveNodes:       []string{"1", "2"},
+			giveAliveNodesErr:    fmt.Errorf("get failed"),
+			wantAliveNodesCalled: true,
+			wantErr:              fmt.Errorf("get failed"),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.caseDesc, func(t *testing.T) {
+			mStore := &MockStore{}
+			mStore.On("ListTaskInstance", mock.Anything).Run(func(args mock.Arguments) {
+				assert.Equal(t, &ListTaskInstanceInput{
+					IDs: tc.giveTaskInsID,
+				}, args.Get(0))
+			}).Return([]*entity.TaskInstance{
+				{},
+			}, nil)
+			mStore.On("GetDagInstance", mock.Anything).Return(&entity.DagInstance{
+				Status: entity.DagInstanceStatusFailed,
+			}, nil)
+			mStore.On("PatchDagIns", mock.Anything).Run(func(args mock.Arguments) {
+				assert.Equal(t, tc.wantUpdateDagIns, args.Get(0))
+			}).Return(nil)
+			SetStore(mStore)
+
+			isCalled := false
+			mKeep := &MockKeeper{}
+			mKeep.On("IsAlive", mock.Anything).Return(tc.giveIsAlive, nil)
+			mKeep.On("AliveNodes").Run(func(args mock.Arguments) {
+				isCalled = true
+			}).Return(tc.giveAliveNodes, tc.giveAliveNodesErr)
+			SetKeeper(mKeep)
+
+			c := &DefCommander{}
+			err := c.SkipTask(tc.giveTaskInsID)
+			assert.Equal(t, tc.wantErr, err)
+			assert.Equal(t, tc.wantAliveNodesCalled, isCalled)
+		})
+	}
+}
+
 func TestDefCommander_initOption(t *testing.T) {
 	tests := []struct {
 		caseDesc   string

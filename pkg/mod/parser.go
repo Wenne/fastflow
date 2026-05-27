@@ -445,6 +445,23 @@ func (p *DefParser) parseCmd(dagIns *entity.DagInstance) (err error) {
 			if err != nil {
 				return
 			}
+		case entity.CommandNameSkip:
+			err = p.loopTaskThenInitialDagIns(
+				dagIns,
+				[]entity.TaskInstanceStatus{entity.TaskInstanceStatusFailed, entity.TaskInstanceStatusInit},
+				func(t *entity.TaskInstance) bool {
+					if t.Status != entity.TaskInstanceStatusFailed &&
+						t.Status != entity.TaskInstanceStatusInit {
+						return false
+					}
+
+					t.Status = entity.TaskInstanceStatusSkipped
+					t.Reason = ""
+					return true
+				})
+			if err != nil {
+				return
+			}
 		default:
 			log.Errorf("command[%s] is invalid, ignore it", dagIns.Cmd.Name)
 		}
